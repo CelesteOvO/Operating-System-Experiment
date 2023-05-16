@@ -13,6 +13,6 @@ add_executable(${SRC}
             ${SRC}.cpp
             PCB.h PCB.cpp
             ProducerAndConsumer.cpp ProducerAndConsumer.h
-            )
+        MemoryAllocation.h MemoryAllocation.cpp)
 endforeach()
 
