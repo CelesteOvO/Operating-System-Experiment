@@ -31,13 +31,13 @@ void MemoryAllocation::init_jobs(int totalMemorySize, int jobNum) {
         //srand(time(nullptr));
         for (int i = 0; i < jobNum; i++) {
             Job* job = new Job;
-            job->name = std::to_string(i + 1);
-            job->length = rand() % (totalMemorySize / 4 + 1); //随机内存需求
+            job->name = std::to_string(i+1);
+            job->length = rand() % (totalMemorySize / 4) + 1; //随机内存需求
             job->flag = NotAllocated;
             job_queue.push_back(job);
             sum += job->length;
         }
-        if(sum <= totalMemorySize){
+        if(sum == totalMemorySize){
             flag = false;
         }
     }
@@ -45,6 +45,7 @@ void MemoryAllocation::init_jobs(int totalMemorySize, int jobNum) {
 
 static int jobAllocatedNum = 0;    // Number of jobs allocated
 void MemoryAllocation::allocate_memory() {
+    int count = 0;
     while (jobAllocatedNum < jobNum) {
         std::cout << "Start a round of allocation!" << std::endl;
         for(int job = 0; job < jobNum; job++){
@@ -66,8 +67,14 @@ void MemoryAllocation::allocate_memory() {
             std::cout << "All jobs have been allocated!" << std::endl;
             break;
         }
+        if(count == 0)
+            merge_memory();
+        print_memory_status();
         std::cout << "Start a round of recycle!" << std::endl;
         for(int i = 0; i < jobNum; i++){
+            if(job_queue[i]->flag == NotAllocated){
+                continue;
+            }
             srand(time(nullptr));
             int randNum = rand() % 2;
             std::cout << "The rand number is: " << randNum << std::endl;
@@ -80,13 +87,14 @@ void MemoryAllocation::allocate_memory() {
                 std::cout << "Job: " << job_queue[i]->name << " is still running!" << std::endl;
             }
         }
+        count++;
     }
 }
 
 void MemoryAllocation::first_fit(Job* job) {
     int j;
-    for (int i = 0; i < blockNum; i++) {  // 遍历空闲区表
-        if(free_memory[i]->length >= job->length){
+    for (int i = 0; i < free_memory.size(); i++) {  // 遍历空闲区表
+        if(free_memory[i]->length > job->length || free_memory[i]->length == job->length){
             std::cout << "The job is allocated, the block size is: " << free_memory[i]->length << std::endl;
             for(j = 0; j < blockNum; j++) // 遍历已分配区表
             {
@@ -102,9 +110,10 @@ void MemoryAllocation::first_fit(Job* job) {
             }
             if(free_memory[i]->length == job->length){ // 如果空闲区表中的内存块大小等于作业大小
                 free_memory[i]->flag = false;
-                for (j = i; j < blockNum; j++) // 将空闲区表中的内存块删除 // 空闲区大小少1
+                free_memory.erase(free_memory.begin() + i);
+                /*for (j = i; j < blockNum-1; j++) // 将空闲区表中的内存块删除 // 空闲区大小少1
                     free_memory[j] = free_memory[j + 1];
-                free_memory[blockNum-1]->flag = false; // 标记改空闲块已经删除
+                free_memory[blockNum-1]->flag = false; // 标记改空闲块已经删除*/
                 break;
             } else { // 如果空闲区表中的内存块大小大于作业大小
                 free_memory[i]->startAddress += job->length; // 将空闲区表中的内存块的起始地址向后移动
@@ -125,7 +134,7 @@ void MemoryAllocation::print_memory_status() {
     std::cout << "*************************************************************" << std::endl;
     std::cout << "Num" << "\t\tAddress" << "\t\tSize" << "\t\tFlag" << std::endl;
     std::cout << "*************************************************************" << std::endl;
-    for (int i = 0; i < blockNum; i++)
+    for (int i = 0; i < free_memory.size(); i++)
     {
         if (free_memory[i]->flag == 1)												//2种状态
             std::cout << i + 1 << "\t\t" << free_memory[i]->startAddress << "\t\t" << free_memory[i]->length << "\t\tFree" << std::endl;
@@ -172,19 +181,53 @@ void MemoryAllocation::reclaim_memory(const std::string& name) {
     {
         if(std::to_string(i->flag) == name) // 找到作业
         {
-            i->flag = false; //
-            merge_memory();
-            int index;
+            i->flag = false;
+            bool Find = false;
+            // Find adjacent free blocks in the free_memory table
+            for (int j = 0; j < free_memory.size(); j++) {
+                if (free_memory[j]->flag) {
+                    if(free_memory[j]->startAddress + free_memory[j]->length == i->startAddress) // 有上回收区
+                    {
+                        if(i->startAddress + i->length == free_memory[j+1]->startAddress){ // 也有下回收区
+                            free_memory[j]->length = free_memory[j]->length + i->length + free_memory[j+1]->length;
+                            free_memory.erase(free_memory.begin() + j + 1 );
+                            /*for (int k = j+1; k <= free_memory.size()-2; k++) // 将空闲区表中的内存块删除 // 空闲区大小少1
+                                free_memory[k] = free_memory[k + 1];
+                            free_memory[blockNum-1]->flag = false; // 标记改空闲块已经删除*/
+                        }else{
+                            free_memory[j]->length += i->length;
+                        }
+                        Find = true;
+                        break;
+                    }else if(i->startAddress + i->length == free_memory[j]->startAddress){
+                        free_memory[j]->startAddress = i->startAddress;
+                        free_memory[j]->length += i->length;
+                        Find = true;
+                        break;
+                    }
+                }
+            }
+
+            if(!Find){
+                auto* block = new MemoryBlock;
+                block->startAddress = i->startAddress;
+                block->length = i->length;
+                block->flag = true;
+                free_memory.push_back(block);
+            }
+
             for(int j = 0; j < jobNum; j++) // 遍历作业队列
             {
                 if(job_queue[j]->name == name) // 找到作业
                 {
-                    index = j;
+                    job_queue[j]->flag = Finished;
                     break;
                 }
             }
-            std::cout << "Reallocated job: " << job_queue[index]->name << std::endl;
-            first_fit(job_queue[index]); // 将作业重新分配
+
+            //merge_memory(job_queue[index]);
+            std::cout << "Reallocated job! " << std::endl;
+            //first_fit(job_queue[index]); // 将作业重新分配
             break;
         }/*else{
             std::cout << "Job: " << name << " is not found!" << std::endl;
@@ -195,39 +238,15 @@ void MemoryAllocation::reclaim_memory(const std::string& name) {
 }
 
 void MemoryAllocation::merge_memory() {
-    for (int i = 0; i < blockNum; i++) { // 遍历空闲区
+    for (int i = 0; i < free_memory.size(); i++) { // 遍历空闲区
         if (free_memory[i]->flag) { // 如果当前内存块是空闲的
-            int prev = i - 1, next = i + 1; // 初始化前后指针
-            bool merged = false; // 标记是否进行了合并操作
-
-            // 向前合并空闲块
-            while (prev >= 0 && free_memory[prev]->flag) {
+            while(i+1 <free_memory.size() && free_memory[i+1]->flag && free_memory[i]->startAddress + free_memory[i]->length == free_memory[i+1]->startAddress) {
                 std::cout << "Find the upper neighbor free area!" << std::endl;
-                free_memory[prev]->length += free_memory[i]->length;
-                i = prev;
-                prev--;
-                merged = true;
-            }
-
-            // 向后合并空闲块
-            while (next < blockNum && free_memory[next]->flag) {
-                std::cout << "Find the lower neighbor free area!" << std::endl;
-                free_memory[i]->length += free_memory[next]->length;
-                next++;
-                merged = true;
-            }
-
-            if (merged) {
-                // 删除合并过的空闲块
-                for (int j = i + 1; j < next; j++) {
-                    free_memory[j - (j - i)] = free_memory[j];
-                }
+                free_memory[i]->length += free_memory[i+1]->length;
+                free_memory.erase(free_memory.begin() + i + 1 );
             }
         }
     }
-
-    // 将最后一个空闲块的 flag 设置为 false
-    free_memory[blockNum - 1]->flag = false;
 }
 
 
